@@ -9,14 +9,16 @@ import com.example.supplychain.entity.StockTransfer;
 import com.example.supplychain.service.TransferService;
 
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/transfers")
-@RequiredArgsConstructor
 public class TransferController {
 
     private final TransferService transferService;
+
+    public TransferController(TransferService transferService) {
+        this.transferService = transferService;
+    }
 
     @PostMapping
     public ResponseEntity<StockTransfer> createTransfer(

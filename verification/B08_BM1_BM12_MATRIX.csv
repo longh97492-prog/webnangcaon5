@@ -1,0 +1,13 @@
+﻿Ma,Rui ro,Vi tri code,Automated checks,Can kiem tra tren server/browser,Trang thai
+BM1,SQL injection,ProductSearchService.java; ProductSearchController.java,bm01InjectionTextDoesNotBypassProductSearchFilter; bm01SqlWildcardCharactersAreEscapedInSearch,All search/path params; negative queries; no SQL errors,CHUA KIEM CHUNG THUC TE
+BM2,Stored XSS,audit-logs.js; AuditLogController.java,bm02AuditUiUsesTextNodesInsteadOfInjectingHtml,Browser stored payload renders text and never executes,CHUA KIEM CHUNG THUC TE
+BM3,CSRF,SecurityConfig.java; CsrfTokenController.java; audit-logs.js,bm03CrossSiteStateChangingRequestWithoutCsrfIsForbidden; bm03CsrfEndpointPublishesHeaderNameAndToken,Browser login/logout; cross-origin form denied,CHUA KIEM CHUNG THUC TE
+BM4,IDOR,SecurityConfig.java; UserAccountController.java,bm04StaffCannotReadOtherAccountsByChangingIdentifiers,All object IDs and object ownership checks,CHUA KIEM CHUNG THUC TE
+BM5,Broken access control,SecurityConfig.java; UserAccountController.java; AuditLogController.java,bm05RoleMatrixRejectsDeniedOperations,Complete allow/deny permission matrix,CHUA KIEM CHUNG THUC TE
+BM6,Unsafe password storage,AuthController.java; UserAccountController.java,bm06RegistrationHashesPasswordAndDoesNotAllowAdminRole,Existing data and password audit; history,CHUA KIEM CHUNG THUC TE
+BM7,Session management,AuthController.java; application-prod.properties,bm07UnauthenticatedAccessIsRejectedAndCookieFlagsAreConfiguredInProd,Cookie Secure HttpOnly SameSite + session expiration in live browser,CHUA KIEM CHUNG THUC TE
+BM8,File upload,FileUploadService.java; FileUploadController.java,bm08RejectsFakeImagePayload; bm08RejectsSpreadsheetContainingVbaMacro,Real upload storage isolation and direct-file access,CHUA KIEM CHUNG THUC TE
+BM9,Error information leakage,GlobalExceptionHandler.java; application-prod.properties,bm09MalformedInputsNeverExposeInternalExceptionDetails,Production 400/404/500 do not show stack traces,CHUA KIEM CHUNG THUC TE
+BM10,Brute force / rate limit,LoginAttemptService.java; AuthController.java,bm10RepeatedWrongLoginsReceive429,Review logs and restarts / distributed environment,CHUA KIEM CHUNG THUC TE
+BM11,Git history secrets,scripts/check-b08-git-history.ps1,Run script against --all refs,Manual and hosted secret scan; rotate any compromised key,CHUA KIEM CHUNG THUC TE
+BM12,HTTPS + security headers,SecurityConfig.java; application-prod.properties,bm12HttpsResponseIncludesFiveSecurityHeaders; httpRequestsRedirectToHttpsWhenEnabled,scripts/test-b08-public-headers.ps1; real TLS and redirect,CHUA KIEM CHUNG THUC TE

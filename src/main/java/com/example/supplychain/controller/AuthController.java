@@ -71,30 +71,23 @@ public class AuthController {
                 || request.getPassword().isBlank()) {
 
             return ResponseEntity.badRequest()
-                    .body("Username và password không được để trống");
+                    .body("Username v├á password kh├┤ng ─æ╞░ß╗úc ─æß╗â trß╗æng");
         }
 
         String username = request.getUsername().trim();
 
         if (userAccountRepository.findByUsername(username).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Username đã tồn tại");
+                    .body("Username ─æ├ú tß╗ôn tß║íi");
         }
 
-<<<<<<< HEAD
         UserAccount newAccount = new UserAccount();
         newAccount.setUsername(username);
         newAccount.setPassword(
                 passwordEncoder.encode(request.getPassword())
-=======
-        user.setRole(Role.WAREHOUSE_STAFF);
-
-        user.setPassword(
-                passwordEncoder.encode(user.getPassword())
->>>>>>> group/develop
         );
 
-        // Đăng ký công khai không được tự cấp quyền ADMIN.
+        // ─É─âng k├╜ c├┤ng khai kh├┤ng ─æ╞░ß╗úc tß╗▒ cß║Ñp quyß╗ün ADMIN.
         newAccount.setRole(Role.WAREHOUSE_STAFF);
 
         UserAccount saved = userAccountRepository.save(newAccount);
@@ -115,7 +108,7 @@ public class AuthController {
                 || requestBody.getPassword() == null) {
 
             return ResponseEntity.badRequest()
-                    .body("Thiếu username hoặc password");
+                    .body("Thiß║┐u username hoß║╖c password");
         }
 
         String username = requestBody.getUsername().trim();
@@ -130,7 +123,7 @@ public class AuthController {
             );
 
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body("Tài khoản tạm thời bị giới hạn đăng nhập");
+                    .body("T├ái khoß║ún tß║ím thß╗¥i bß╗ï giß╗¢i hß║ín ─æ─âng nhß║¡p");
         }
 
         try {
@@ -147,13 +140,13 @@ public class AuthController {
                     .orElseThrow(() ->
                             new org.springframework.security.authentication
                                     .BadCredentialsException(
-                                            "Sai username hoặc password"
+                                            "Sai username hoß║╖c password"
                                     )
                     );
 
             loginAttemptService.recordSuccess(attemptKey);
 
-            // Chống session fixation.
+            // Chß╗æng session fixation.
             HttpSession existingSession = request.getSession(false);
 
             if (existingSession != null) {
@@ -196,7 +189,7 @@ public class AuthController {
             );
 
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body("Sai username hoặc password");
+                    .body("Sai username hoß║╖c password");
         }
     }
 
@@ -211,7 +204,7 @@ public class AuthController {
             session.invalidate();
         }
 
-        return ResponseEntity.ok("Đăng xuất thành công");
+        return ResponseEntity.ok("─É─âng xuß║Ñt th├ánh c├┤ng");
     }
 
     private Map<String, Object> toSafeResponse(UserAccount account) {

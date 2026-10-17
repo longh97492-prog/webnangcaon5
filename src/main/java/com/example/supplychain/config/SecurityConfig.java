@@ -4,6 +4,7 @@ package com.example.supplychain.config;
 import com.example.supplychain.entity.UserAccount;
 import com.example.supplychain.repository.UserAccountRepository;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -71,8 +72,14 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http)
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            @Value("${app.security.require-https:false}") boolean requireHttps)
             throws Exception {
+
+        if (requireHttps) {
+            http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
+        }
 
         http
                 .csrf(Customizer.withDefaults())
@@ -81,9 +88,9 @@ public class SecurityConfig {
                                 "/api/auth/register",
                                 "/api/auth/login",
                                 "/api/auth/logout",
+                                "/api/auth/csrf",
                                 "/h2-console/**"
                         ).permitAll()
-<<<<<<< HEAD
                         .requestMatchers("/api/admin/**")
                                 .hasRole("ADMIN")
                         .requestMatchers("/api/user-accounts", "/api/user-accounts/**")
@@ -92,28 +99,13 @@ public class SecurityConfig {
                                 .hasRole("ADMIN")
                         .requestMatchers("/api/users/**")
                                 .hasRole("ADMIN")
-=======
-
-                        .requestMatchers("/api/admin/**")
-                                .hasRole("ADMIN")
-
-                        // Quan tri tai khoan chi danh cho ADMIN.
-                        .requestMatchers(
-                                "/api/user-accounts",
-                                "/api/user-accounts/**"
-                        ).hasRole("ADMIN")
-
->>>>>>> group/develop
                         .requestMatchers("/api/files/**")
                                 .hasAnyRole(
                                         "ADMIN",
                                         "WAREHOUSE_MANAGER",
                                         "WAREHOUSE_STAFF"
                                 )
-
-                        .requestMatchers("/api/**")
-                                .authenticated()
-
+                        .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )
                 .exceptionHandling(errors -> errors

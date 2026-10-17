@@ -17,10 +17,7 @@ import com.example.supplychain.repository.StockTransferRepository;
 import com.example.supplychain.repository.TransferDetailRepository;
 import com.example.supplychain.repository.WarehouseRepository;
 
-import lombok.RequiredArgsConstructor;
-
 @Service
-@RequiredArgsConstructor
 public class TransferService {
 
     private final StockTransferRepository transferRepository;
@@ -28,6 +25,20 @@ public class TransferService {
     private final WarehouseRepository warehouseRepository;
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
+
+    public TransferService(
+            StockTransferRepository transferRepository,
+            TransferDetailRepository detailRepository,
+            WarehouseRepository warehouseRepository,
+            ProductRepository productRepository,
+            InventoryRepository inventoryRepository) {
+
+        this.transferRepository = transferRepository;
+        this.detailRepository = detailRepository;
+        this.warehouseRepository = warehouseRepository;
+        this.productRepository = productRepository;
+        this.inventoryRepository = inventoryRepository;
+    }
 
     @Transactional
     public StockTransfer createTransfer(TransferRequest request) {
@@ -37,23 +48,28 @@ public class TransferService {
         if (source == null || target == null || source.equals(target)) {
             throw error("Kho nguon va kho dich phai khac nhau");
         }
+
         if (!warehouseRepository.existsById(source)
                 || !warehouseRepository.existsById(target)) {
             throw error("Kho khong ton tai");
         }
+
         if (request.getProductId() == null
                 || !productRepository.existsById(request.getProductId())) {
             throw error("San pham khong ton tai");
         }
+
         if (request.getQuantity() == null || request.getQuantity() <= 0) {
             throw error("So luong phai lon hon 0");
         }
+
         if (request.getTransferCode() == null
                 || request.getTransferCode().isBlank()) {
             throw error("Ma phieu khong duoc de trong");
         }
 
         String code = request.getTransferCode().trim();
+
         if (transferRepository.existsByTransferCode(code)) {
             throw error("Ma phieu da ton tai");
         }
@@ -64,12 +80,14 @@ public class TransferService {
         transfer.setToWarehouseId(target);
         transfer.setTransferDate(LocalDate.now());
         transfer.setStatus("DRAFT");
+
         transferRepository.save(transfer);
 
         TransferDetail detail = new TransferDetail();
         detail.setTransferId(transfer.getId());
         detail.setProductId(request.getProductId());
         detail.setQuantity(request.getQuantity());
+
         detailRepository.save(detail);
 
         return transfer;
@@ -78,6 +96,7 @@ public class TransferService {
     @Transactional
     public StockTransfer completeTransfer(Long id) {
         StockTransfer transfer = lockDraft(id);
+
         Long sourceId = transfer.getFromWarehouseId();
         Long targetId = transfer.getToWarehouseId();
 
@@ -86,29 +105,36 @@ public class TransferService {
             throw error("Kho nguon va kho dich khong hop le");
         }
 
-        // Lock warehouses in a consistent order before inventory rows.
+        // Khoa cac kho theo thu tu co dinh de giam nguy co deadlock.
         lockWarehouse(Math.min(sourceId, targetId));
         lockWarehouse(Math.max(sourceId, targetId));
 
         List<TransferDetail> details =
                 detailRepository.findByTransferIdOrderByProductIdAsc(id);
+
         if (details.size() != 1) {
             throw error("Phieu phai co dung mot chi tiet san pham");
         }
 
         TransferDetail detail = details.get(0);
         Integer quantity = detail.getQuantity();
+
         if (detail.getProductId() == null
-                || quantity == null || quantity <= 0) {
+                || quantity == null
+                || quantity <= 0) {
             throw error("Chi tiet chuyen kho khong hop le");
         }
+
         if (!productRepository.existsById(detail.getProductId())) {
             throw error("San pham khong ton tai");
         }
 
         Inventory source = inventoryRepository.findForUpdate(
-                sourceId, detail.getProductId())
-                .orElseThrow(() -> error("San pham chua co trong kho nguon"));
+                sourceId,
+                detail.getProductId()
+        ).orElseThrow(() ->
+                error("San pham chua co trong kho nguon")
+        );
 
         if (source.getQuantity() == null
                 || source.getQuantity() < quantity) {
@@ -116,7 +142,9 @@ public class TransferService {
         }
 
         Inventory target = inventoryRepository.findForUpdate(
-                targetId, detail.getProductId()).orElse(null);
+                targetId,
+                detail.getProductId()
+        ).orElse(null);
 
         if (target == null) {
             target = new Inventory();
@@ -125,30 +153,40 @@ public class TransferService {
             target.setQuantity(0);
             target.setMinimumQuantity(0);
         }
-        if (target.getQuantity() == null || target.getQuantity() < 0) {
+
+        if (target.getQuantity() == null
+                || target.getQuantity() < 0) {
             throw error("Ton kho dich khong hop le");
         }
 
         int updatedTarget;
+
         try {
-            updatedTarget = Math.addExact(target.getQuantity(), quantity);
+            updatedTarget = Math.addExact(
+                    target.getQuantity(),
+                    quantity
+            );
         } catch (ArithmeticException exception) {
             throw error("So luong ton kho vuot gioi han cho phep");
         }
 
         source.setQuantity(source.getQuantity() - quantity);
         target.setQuantity(updatedTarget);
+
         inventoryRepository.save(source);
         inventoryRepository.save(target);
 
         transfer.setStatus("COMPLETED");
+
         return transferRepository.save(transfer);
     }
 
     @Transactional
     public StockTransfer cancelTransfer(Long id) {
         StockTransfer transfer = lockDraft(id);
+
         transfer.setStatus("CANCELLED");
+
         return transferRepository.save(transfer);
     }
 
@@ -158,17 +196,22 @@ public class TransferService {
         }
 
         StockTransfer transfer = transferRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> error("Khong tim thay phieu chuyen kho"));
+                .orElseThrow(() ->
+                        error("Khong tim thay phieu chuyen kho")
+                );
 
         if (!"DRAFT".equals(transfer.getStatus())) {
             throw error("Chi phieu DRAFT moi duoc hoan tat hoac huy");
         }
+
         return transfer;
     }
 
     private void lockWarehouse(Long id) {
         warehouseRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> error("Kho khong ton tai"));
+                .orElseThrow(() ->
+                        error("Kho khong ton tai")
+                );
     }
 
     private TransferBusinessException error(String message) {

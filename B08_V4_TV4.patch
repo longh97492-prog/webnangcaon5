@@ -1,0 +1,1251 @@
+diff --git a/HUONG_DAN_AP_DUNG_B08_TV4.md b/HUONG_DAN_AP_DUNG_B08_TV4.md
+new file mode 100644
+index 0000000..7de42aa
+--- /dev/null
++++ b/HUONG_DAN_AP_DUNG_B08_TV4.md
+@@ -0,0 +1,60 @@
++# B08 — code bảo mật và kiểm thử V4 (không phải báo cáo)
++
++Gói này được đối chiếu với source nhóm lưu trong `webnangcaon5-1810.zip`, các bản bổ sung B07 và 5 bài test B08 đã gửi trước đó. Chỉ thay mã liên quan B08; **không sửa** `TransferController`, `TransferService`, `ImportRequest`, `FileUploadController` hay `FileUploadService`.
++
++## Áp dụng an toàn từ PowerShell (ở thư mục gốc dự án)
++
++**Không giải nén đè thẳng lên source.** Giải nén ZIP vào thư mục tạm rồi kiểm tra và áp dụng patch; `git apply --ignore-whitespace --check` sẽ dừng nếu file đã thay đổi không tương thích:
++
++```powershell
++$dest = Join-Path $env:TEMP 'B08_V4_TV4_20261018'
++Expand-Archive -LiteralPath "$env:USERPROFILE\Downloads\B08_V4_TV4_CODE_20261018.zip" -DestinationPath $dest -Force
++$patch = Join-Path $dest 'B08_V4_TV4.patch'
++git status --short
++git apply --ignore-whitespace --check $patch
++git apply --ignore-whitespace $patch
++```
++
++Nếu `git apply --ignore-whitespace --check` báo lỗi, **không ép ghi đè**. Cần đối chiếu code hiện có với file trong ZIP (vì nhánh của bạn có thể đã được nhóm cập nhật).
++
++## Kiểm tra
++
++```powershell
++mvn '-Dtest=B08V4RiskVerificationTest,B08ProductionHttpsTest' test
++mvn clean test
++powershell -ExecutionPolicy Bypass -File .\scripts\check-b08-git-history.ps1 -ShowMatches
++```
++
++Kiểm chứng trên miền HTTPS nhóm sau khi V5 triển khai:
++
++```powershell
++powershell -ExecutionPolicy Bypass -File .\scripts\test-b08-public-headers.ps1 -BaseUrl 'https://TEN-MIEN-CUA-NHOM'
++```
++
++Các script **không tự chụp ảnh** và **không tự khẳng định 12/12 đã kiểm chứng**. Người thực hiện chụp minh chứng Ảnh 16–26 khi chạy test và thử trên môi trường thật.
++
++## Thay đổi chính
++
++- `SecurityConfig`: cho phép lấy CSRF token trước khi đăng nhập; bắt buộc HTTPS khi `app.security.require-https=true`.
++- `CsrfTokenController`: cấp CSRF header+token để dùng trong phiên hiện tại.
++- `audit-logs.html`/`.js`/`.css`: chuyển script và CSS ngoài trang cho tương thích CSP; bổ sung CSRF cho login/logout; giữ chống XSS bằng `textContent`.
++- `application-prod.properties`: tắt lỗi chi tiết/H2 console, bật secure session cookie, require HTTPS.
++- `B08V4RiskVerificationTest`: 16 ca mới; `B08ProductionHttpsTest`: 2 ca. **Chưa chạy Maven trong môi trường tạo gói**; chỉ kiểm tra cú pháp Java 21 và JavaScript.
++- `check-b08-git-history.ps1`: rà toàn bộ commit (`git rev-list --all`) theo mẫu khả nghi mà không in giá trị bí mật; cần rà soát thủ công vì có thể báo sai hoặc bỏ sót.
++- `test-b08-public-headers.ps1`: kiểm tra 5 response headers trên tên miền HTTPS thực.
++- `verification/B08_BM1_BM12_MATRIX.csv`: danh mục mã nguồn, test, phần còn phải xác minh trên môi trường thực.
++
++Lưu ý: `app.security.require-https=true` chỉ dùng **sau khi cấu hình reverse proxy HTTPS tin cậy**. Proxy phải loại bỏ forwarded headers do client gửi trước khi cung cấp header tin cậy; nếu không sẽ có rủi ro giả mạo scheme hoặc vòng lặp redirect. Tài khoản/role, token và ảnh bằng chứng không được đưa lên GitHub.
++
++## Commit/push sau khi cả suite PASS
++
++```powershell
++git status --short
++git diff --check
++git add src/main/java/com/example/supplychain/config/SecurityConfig.java src/main/java/com/example/supplychain/controller/CsrfTokenController.java src/main/resources/application-prod.properties src/main/resources/static/audit-logs.html src/main/resources/static/audit-logs.css src/main/resources/static/audit-logs.js src/test/java/com/example/supplychain/B08V4RiskVerificationTest.java src/test/java/com/example/supplychain/B08ProductionHttpsTest.java scripts/check-b08-git-history.ps1 scripts/test-b08-public-headers.ps1 scripts/run-b08-v4.ps1 verification/B08_BM1_BM12_MATRIX.csv HUONG_DAN_AP_DUNG_B08_TV4.md
++git diff --cached --stat
++git commit -m 'test(security): verify B08 BM1-BM12 and secure audit UI'
++git push group feature/b08-tv4
++```
++
++B08 vẫn cần kiểm chứng thực tế BM1–BM12 (đặc biệt BM4 ma trận đầy đủ, BM11 history, BM12 deploy) để được xem là hoàn tất theo sổ tay. Không đánh dấu PASS các mục này nếu chưa có kết quả.
+diff --git a/scripts/check-b08-git-history.ps1 b/scripts/check-b08-git-history.ps1
+new file mode 100644
+index 0000000..42eb706
+--- /dev/null
++++ b/scripts/check-b08-git-history.ps1
+@@ -0,0 +1,60 @@
++param(
++    [switch]$ShowMatches
++)
++$ErrorActionPreference = 'Stop'
++if (-not (Test-Path '.git')) {
++    throw 'Hay chay script tai thu muc goc Git repository.'
++}
++
++$branch = git branch --show-current
++$commits = @(git rev-list --all)
++if ($LASTEXITCODE -ne 0) { throw 'Khong doc duoc lich su git.' }
++if ($commits.Count -eq 0) { throw 'Git history rong, khong the xac minh BM11.' }
++Write-Host ('BM11: branch={0}, commits={1}' -f $branch, $commits.Count)
++
++# Heuristic only. This is intentionally not an assertion that secrets are absent.
++$secretNames = '(?i)(^|/)(\.env($|\.)|id_rsa$|id_ed25519$|[^/]*\.(pem|p12|pfx|jks|key)$|[^/]*(credentials|secrets)[^/]*)'
++$credentialLine = '(api[_-]?key|client[_-]?secret|access[_-]?token|secret[_-]?key|password)[[:space:]]*[:=][[:space:]]*["''][^"''][^"'']{5,}|-----BEGIN[[:space:]]+([A-Z]+[[:space:]]+)?PRIVATE[[:space:]]+KEY-----'
++
++$flaggedPaths = New-Object 'System.Collections.Generic.HashSet[string]'
++$examples = New-Object 'System.Collections.Generic.List[string]'
++$scanned = 0
++foreach ($commit in $commits) {
++    $commit = $commit.Trim()
++    if ($commit.Length -eq 0) { continue }
++    $scanned++
++    $paths = @(git ls-tree -r --name-only $commit)
++    if ($LASTEXITCODE -ne 0) { throw "git ls-tree failed at $commit" }
++    foreach ($p in $paths) {
++        if ($p -match $secretNames) {
++            $null = $flaggedPaths.Add($p)
++            if ($examples.Count -lt 20) { $examples.Add("FILE: $p") }
++        }
++    }
++
++    # git grep -l prints only commit:path, not credential values.
++    $matchedFiles = @(git grep -I -i -l -E -- $credentialLine $commit -- 2>$null)
++    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
++        throw "git grep failed at $commit with exit code $LASTEXITCODE"
++    }
++    foreach ($match in $matchedFiles) {
++        if (-not [string]::IsNullOrWhiteSpace($match)) {
++            $path = $match -replace '^[0-9a-fA-F]{40}:', ''
++            $null = $flaggedPaths.Add($path)
++            if ($examples.Count -lt 20) { $examples.Add("CONTENT: $path") }
++        }
++    }
++}
++
++Write-Host ('Da quet {0} commits. So duong dan can xem xet: {1}' -f $scanned, $flaggedPaths.Count)
++if ($flaggedPaths.Count -gt 0) {
++    if ($ShowMatches) {
++        $examples | Select-Object -Unique | ForEach-Object { Write-Warning $_ }
++    } else {
++        Write-Warning 'Co ket qua can kiem tra. Dung -ShowMatches de xem TEN FILE, khong in gia tri bi mat.'
++    }
++    Write-Warning 'Khong duoc ket luan BM11 PASS. Neu ro ri that: thu hoi/doi khoa, phoi hop nhom lam sach history.'
++    exit 2
++}
++Write-Host 'Khong phat hien dau hieu theo bo quy tac heuristic; VAN CAN review thu cong va GitHub secret scanning.'
++exit 0
+diff --git a/scripts/run-b08-v4.ps1 b/scripts/run-b08-v4.ps1
+new file mode 100644
+index 0000000..06ae8f2
+--- /dev/null
++++ b/scripts/run-b08-v4.ps1
+@@ -0,0 +1,9 @@
++$ErrorActionPreference = 'Stop'
++if (-not (Test-Path 'pom.xml')) { throw 'Hay chay trong thu muc goc Maven project.' }
++Write-Host 'B08 V4: chay test doi tuong, CSRF, upload, login, HTTPS, headers.'
++& mvn '-Dtest=B08V4RiskVerificationTest,B08ProductionHttpsTest' test
++if ($LASTEXITCODE -ne 0) { throw 'B08 tests FAILED; khong push.' }
++Write-Host 'B08 test PASS. Tiep tuc chay toan bo Maven tests.'
++& mvn clean test
++if ($LASTEXITCODE -ne 0) { throw 'Full Maven tests FAILED; khong push.' }
++Write-Host 'Maven tests PASS. Chua du dieu kien khang dinh BM11/BM12 tren production.'
+diff --git a/scripts/test-b08-public-headers.ps1 b/scripts/test-b08-public-headers.ps1
+new file mode 100644
+index 0000000..a4a4549
+--- /dev/null
++++ b/scripts/test-b08-public-headers.ps1
+@@ -0,0 +1,44 @@
++param(
++    [Parameter(Mandatory = $true)]
++    [string]$BaseUrl
++)
++$ErrorActionPreference = 'Stop'
++$uri = [Uri]$BaseUrl
++if ($uri.Scheme -ne 'https') {
++    throw 'BaseUrl phai bat dau bang https:// va la domain production cua nhom.'
++}
++$target = '{0}://{1}{2}/api/test/protected' -f $uri.Scheme, $uri.Authority, $uri.AbsolutePath.TrimEnd('/')
++
++# GET without credentials should be 401 but still include Spring Security headers.
++try {
++    $response = Invoke-WebRequest -Uri $target -Method Get -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
++    $headers = $response.Headers
++    $status = [int]$response.StatusCode
++} catch {
++    $resp = $_.Exception.Response
++    if ($null -eq $resp) { throw }
++    $headers = $resp.Headers
++    $status = [int]$resp.StatusCode
++}
++Write-Host "GET $target => HTTP $status"
++$required = @(
++    'Content-Security-Policy',
++    'X-Content-Type-Options',
++    'X-Frame-Options',
++    'Referrer-Policy',
++    'Strict-Transport-Security'
++)
++$missing = @()
++foreach ($name in $required) {
++    $value = $headers[$name]
++    if ([string]::IsNullOrWhiteSpace([string]$value)) {
++        Write-Warning "MISSING $name"
++        $missing += $name
++    } else {
++        Write-Host "OK $name"
++    }
++}
++if ($missing.Count -gt 0) {
++    throw ('BM12 FAIL: missing {0} required headers.' -f $missing.Count)
++}
++Write-Host 'BM12 header check PASS cho HTTPS endpoint. Can kiem tra redirect HTTP->HTTPS va cookie Secure bang browser.'
+diff --git a/src/main/java/com/example/supplychain/config/SecurityConfig.java b/src/main/java/com/example/supplychain/config/SecurityConfig.java
+index 4fe3c85..c4d8edc 100644
+--- a/src/main/java/com/example/supplychain/config/SecurityConfig.java
++++ b/src/main/java/com/example/supplychain/config/SecurityConfig.java
+@@ -4,6 +4,7 @@ package com.example.supplychain.config;
+ import com.example.supplychain.entity.UserAccount;
+ import com.example.supplychain.repository.UserAccountRepository;
+ 
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.authentication.AuthenticationManager;
+@@ -23,9 +24,13 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
+ public class SecurityConfig {
+ 
+     private final UserAccountRepository userAccountRepository;
++    private final boolean requireHttps;
+ 
+-    public SecurityConfig(UserAccountRepository userAccountRepository) {
++    public SecurityConfig(
++            UserAccountRepository userAccountRepository,
++            @Value("${app.security.require-https:false}") boolean requireHttps) {
+         this.userAccountRepository = userAccountRepository;
++        this.requireHttps = requireHttps;
+     }
+ 
+     @Bean
+@@ -79,6 +84,7 @@ public class SecurityConfig {
+                 .authorizeHttpRequests(auth -> auth
+                         .requestMatchers(
+                                 "/api/auth/register",
++                                "/api/auth/csrf",
+                                 "/api/auth/login",
+                                 "/api/auth/logout",
+                                 "/h2-console/**"
+@@ -115,6 +121,11 @@ public class SecurityConfig {
+                                 .maxAgeInSeconds(31536000))
+                 );
+ 
++        // In production, require HTTPS; the trusted proxy must forward the real scheme.
++        if (requireHttps) {
++            http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
++        }
++
+         return http.build();
+     }
+ }
+diff --git a/src/main/java/com/example/supplychain/controller/CsrfTokenController.java b/src/main/java/com/example/supplychain/controller/CsrfTokenController.java
+new file mode 100644
+index 0000000..fdcb867
+--- /dev/null
++++ b/src/main/java/com/example/supplychain/controller/CsrfTokenController.java
+@@ -0,0 +1,24 @@
++package com.example.supplychain.controller;
++
++import java.util.Map;
++
++import org.springframework.security.web.csrf.CsrfToken;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import jakarta.servlet.http.HttpServletRequest;
++
++@RestController
++@RequestMapping("/api/auth")
++public class CsrfTokenController {
++
++    @GetMapping("/csrf")
++    public Map<String, String> csrf(HttpServletRequest request) {
++        CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
++        if (token == null) {
++            throw new IllegalStateException("CSRF token unavailable");
++        }
++        return Map.of("headerName", token.getHeaderName(), "token", token.getToken());
++    }
++}
+diff --git a/src/main/resources/application-prod.properties b/src/main/resources/application-prod.properties
+new file mode 100644
+index 0000000..3ef4ae1
+--- /dev/null
++++ b/src/main/resources/application-prod.properties
+@@ -0,0 +1,17 @@
++# Only use when the application is served by HTTPS (directly or through a trusted TLS proxy).
++# The proxy must remove untrusted Forwarded/X-Forwarded-* values sent by clients.
++server.forward-headers-strategy=framework
++server.error.include-message=never
++server.error.include-binding-errors=never
++server.error.include-stacktrace=never
++server.error.include-exception=false
++server.error.whitelabel.enabled=false
++spring.h2.console.enabled=false
++spring.jpa.show-sql=false
++spring.jpa.properties.hibernate.format_sql=false
++server.servlet.session.cookie.http-only=true
++server.servlet.session.cookie.secure=true
++server.servlet.session.cookie.same-site=strict
++server.servlet.session.timeout=30m
++server.servlet.session.tracking-modes=cookie
++app.security.require-https=true
+diff --git a/src/main/resources/static/audit-logs.css b/src/main/resources/static/audit-logs.css
+new file mode 100644
+index 0000000..231d9dd
+--- /dev/null
++++ b/src/main/resources/static/audit-logs.css
+@@ -0,0 +1,83 @@
++body {
++            font-family: Arial, sans-serif;
++            background: #f3f5f8;
++            color: #172033;
++            margin: 0;
++            padding: 24px;
++        }
++
++        main {
++            max-width: 1200px;
++            margin: auto;
++        }
++
++        section {
++            background: white;
++            padding: 20px;
++            border-radius: 10px;
++            margin-bottom: 18px;
++        }
++
++        form, .controls {
++            display: flex;
++            flex-wrap: wrap;
++            align-items: end;
++            gap: 12px;
++        }
++
++        label {
++            display: flex;
++            flex-direction: column;
++            gap: 6px;
++        }
++
++        input, select, button {
++            padding: 9px;
++            font: inherit;
++            border: 1px solid #b8c2d0;
++            border-radius: 5px;
++        }
++
++        button {
++            cursor: pointer;
++            background: #175cd3;
++            color: white;
++        }
++
++        button:disabled {
++            opacity: 0.5;
++            cursor: default;
++        }
++
++        .table-wrap {
++            overflow-x: auto;
++        }
++
++        table {
++            width: 100%;
++            border-collapse: collapse;
++        }
++
++        th, td {
++            border: 1px solid #d9d9d9;
++            padding: 10px;
++            text-align: left;
++            overflow-wrap: anywhere;
++        }
++
++        th {
++            background: #e7eef8;
++        }
++
++        #message {
++            white-space: pre-wrap;
++        }
++
++        .error {
++            color: #b42318;
++        }
++
++        .controls {
++            margin-top: 16px;
++            align-items: center;
++        }
+diff --git a/src/main/resources/static/audit-logs.html b/src/main/resources/static/audit-logs.html
+index 058e065..4f68a63 100644
+--- a/src/main/resources/static/audit-logs.html
++++ b/src/main/resources/static/audit-logs.html
+@@ -4,91 +4,7 @@
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>Tra cứu nhật ký hệ thống</title>
+-    <style>
+-        body {
+-            font-family: Arial, sans-serif;
+-            background: #f3f5f8;
+-            color: #172033;
+-            margin: 0;
+-            padding: 24px;
+-        }
+-
+-        main {
+-            max-width: 1200px;
+-            margin: auto;
+-        }
+-
+-        section {
+-            background: white;
+-            padding: 20px;
+-            border-radius: 10px;
+-            margin-bottom: 18px;
+-        }
+-
+-        form, .controls {
+-            display: flex;
+-            flex-wrap: wrap;
+-            align-items: end;
+-            gap: 12px;
+-        }
+-
+-        label {
+-            display: flex;
+-            flex-direction: column;
+-            gap: 6px;
+-        }
+-
+-        input, select, button {
+-            padding: 9px;
+-            font: inherit;
+-            border: 1px solid #b8c2d0;
+-            border-radius: 5px;
+-        }
+-
+-        button {
+-            cursor: pointer;
+-            background: #175cd3;
+-            color: white;
+-        }
+-
+-        button:disabled {
+-            opacity: 0.5;
+-            cursor: default;
+-        }
+-
+-        .table-wrap {
+-            overflow-x: auto;
+-        }
+-
+-        table {
+-            width: 100%;
+-            border-collapse: collapse;
+-        }
+-
+-        th, td {
+-            border: 1px solid #d9d9d9;
+-            padding: 10px;
+-            text-align: left;
+-            overflow-wrap: anywhere;
+-        }
+-
+-        th {
+-            background: #e7eef8;
+-        }
+-
+-        #message {
+-            white-space: pre-wrap;
+-        }
+-
+-        .error {
+-            color: #b42318;
+-        }
+-
+-        .controls {
+-            margin-top: 16px;
+-            align-items: center;
+-        }
+-    </style>
++    <link rel="stylesheet" href="/audit-logs.css">
+ </head>
+ <body>
+ <main>
+@@ -192,193 +108,6 @@
+     </section>
+ </main>
+ 
+-<script>
+-    const element = id => document.getElementById(id);
+-    let currentPage = 0;
+-    let activeFilters = new URLSearchParams({size: "20"});
+-    let busy = false;
+-
+-    function showMessage(text, error = false) {
+-        element("message").textContent = text;
+-        element("message").className = error ? "error" : "";
+-    }
+-
+-    function clearResults() {
+-        element("rows").replaceChildren();
+-        element("pageInfo").textContent = "Chưa có kết quả";
+-        element("previousButton").disabled = true;
+-        element("nextButton").disabled = true;
+-    }
+-
+-    async function request(url, options = {}) {
+-        const response = await fetch(url, {
+-            ...options,
+-            credentials: "same-origin"
+-        });
+-
+-        if (response.status === 401) {
+-            throw new Error("HTTP 401 — Vui lòng đăng nhập.");
+-        }
+-
+-        if (response.status === 403) {
+-            throw new Error(
+-                "HTTP 403 — Không đủ quyền xem nhật ký. Yêu cầu ADMIN.");
+-        }
+-
+-        if (!response.ok) {
+-            let message = `HTTP ${response.status}`;
+-            try {
+-                const error = await response.json();
+-                if (error.message) message += " — " + error.message;
+-            } catch (_) {
+-                // Giữ thông báo HTTP nếu phản hồi không phải JSON.
+-            }
+-            throw new Error(message);
+-        }
+-
+-        return response;
+-    }
+-
+-    async function loadPage(page) {
+-        if (busy) return;
+-        busy = true;
+-        clearResults();
+-        showMessage("Đang tải nhật ký...");
+-
+-        try {
+-            const params = new URLSearchParams(activeFilters);
+-            params.set("page", page);
+-
+-            const response = await request(
+-                "/api/admin/audit-logs?" + params.toString());
+-            const data = await response.json();
+-
+-            for (const log of data.content) {
+-                const row = document.createElement("tr");
+-
+-                for (const value of [
+-                    log.id,
+-                    log.username,
+-                    log.action,
+-                    log.entityName,
+-                    log.createdAt
+-                ]) {
+-                    const cell = document.createElement("td");
+-                    cell.textContent = value ?? "";
+-                    row.appendChild(cell);
+-                }
+-
+-                element("rows").appendChild(row);
+-            }
+-
+-            currentPage = data.page;
+-
+-            element("pageInfo").textContent = data.totalPages === 0
+-                ? "0 bản ghi — 0 trang"
+-                : `Trang ${data.page + 1}/${data.totalPages}`
+-                  + ` — Tổng ${data.totalElements} bản ghi`;
+-
+-            element("previousButton").disabled =
+-                data.first || data.totalPages === 0;
+-            element("nextButton").disabled = data.last;
+-
+-            showMessage(data.content.length
+-                ? "HTTP 200 — Tải nhật ký thành công."
+-                : "HTTP 200 — Không có nhật ký phù hợp.");
+-        } catch (error) {
+-            clearResults();
+-            showMessage(error.message, true);
+-        } finally {
+-            busy = false;
+-        }
+-    }
+-
+-    element("loginForm").addEventListener("submit", async event => {
+-        event.preventDefault();
+-        if (busy) return;
+-        clearResults();
+-
+-        const username = element("loginUsername").value.trim();
+-        const password = element("loginPassword").value;
+-        element("loginPassword").value = "";
+-
+-        try {
+-            // Kết thúc phiên cũ trước khi thử tài khoản khác.
+-            await request("/api/auth/logout", {method: "POST"});
+-            element("accountStatus").textContent = "Chưa đăng nhập.";
+-
+-            const response = await request("/api/auth/login", {
+-                method: "POST",
+-                headers: {"Content-Type": "application/json"},
+-                body: JSON.stringify({username, password})
+-            });
+-
+-            const account = await response.json();
+-
+-            element("accountStatus").textContent =
+-                `Đã đăng nhập: ${account.username} — ${account.role}`;
+-
+-            await loadPage(0);
+-        } catch (error) {
+-            showMessage(error.message, true);
+-        }
+-    });
+-
+-    element("logoutButton").addEventListener("click", async () => {
+-        if (busy) return;
+-
+-        try {
+-            await request("/api/auth/logout", {method: "POST"});
+-            clearResults();
+-            element("loginPassword").value = "";
+-            element("accountStatus").textContent = "Đã đăng xuất.";
+-            showMessage("Đã kết thúc phiên đăng nhập.");
+-        } catch (error) {
+-            showMessage(error.message, true);
+-        }
+-    });
+-
+-    element("filterForm").addEventListener("submit", event => {
+-        event.preventDefault();
+-        if (busy) return;
+-
+-        const fromTime = element("fromTime").value;
+-        const toTime = element("toTime").value;
+-
+-        if (fromTime && toTime && fromTime > toTime) {
+-            clearResults();
+-            showMessage(
+-                "Thời điểm bắt đầu phải nhỏ hơn hoặc bằng thời điểm kết thúc.",
+-                true);
+-            return;
+-        }
+-
+-        activeFilters = new URLSearchParams();
+-
+-        for (const key of [
+-            "username", "action", "fromTime", "toTime", "size"
+-        ]) {
+-            const value = element(key).value.trim();
+-            if (value) activeFilters.set(key, value);
+-        }
+-
+-        loadPage(0);
+-    });
+-
+-    element("resetButton").addEventListener("click", () => {
+-        if (busy) return;
+-        element("filterForm").reset();
+-        activeFilters = new URLSearchParams({size: "20"});
+-        loadPage(0);
+-    });
+-
+-    element("previousButton").addEventListener("click", () => {
+-        loadPage(currentPage - 1);
+-    });
+-
+-    element("nextButton").addEventListener("click", () => {
+-        loadPage(currentPage + 1);
+-    });
+-</script>
++    <script src="/audit-logs.js" defer></script>
+ </body>
+ </html>
+\ No newline at end of file
+diff --git a/src/main/resources/static/audit-logs.js b/src/main/resources/static/audit-logs.js
+new file mode 100644
+index 0000000..4016c13
+--- /dev/null
++++ b/src/main/resources/static/audit-logs.js
+@@ -0,0 +1,196 @@
++const element = id => document.getElementById(id);
++    let currentPage = 0;
++    let activeFilters = new URLSearchParams({size: "20"});
++    let busy = false;
++
++    function showMessage(text, error = false) {
++        element("message").textContent = text;
++        element("message").className = error ? "error" : "";
++    }
++
++    function clearResults() {
++        element("rows").replaceChildren();
++        element("pageInfo").textContent = "Chưa có kết quả";
++        element("previousButton").disabled = true;
++        element("nextButton").disabled = true;
++    }
++
++    async function request(url, options = {}) {
++        const config = {...options, credentials: "same-origin"};
++        const method = (config.method || "GET").toUpperCase();
++        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
++            const tokenResponse = await fetch("/api/auth/csrf", {
++                credentials: "same-origin",
++                cache: "no-store"
++            });
++            if (!tokenResponse.ok) {
++                throw new Error("Không lấy được CSRF token.");
++            }
++            const csrf = await tokenResponse.json();
++            config.headers = {...(config.headers || {}), [csrf.headerName]: csrf.token};
++        }
++        const response = await fetch(url, config);
++
++        if (response.status === 401) {
++            throw new Error("HTTP 401 — Vui lòng đăng nhập.");
++        }
++
++        if (response.status === 403) {
++            throw new Error(
++                "HTTP 403 — Không đủ quyền xem nhật ký. Yêu cầu ADMIN.");
++        }
++
++        if (!response.ok) {
++            let message = `HTTP ${response.status}`;
++            try {
++                const error = await response.json();
++                if (error.message) message += " — " + error.message;
++            } catch (_) {
++                // Giữ thông báo HTTP nếu phản hồi không phải JSON.
++            }
++            throw new Error(message);
++        }
++
++        return response;
++    }
++
++    async function loadPage(page) {
++        if (busy) return;
++        busy = true;
++        clearResults();
++        showMessage("Đang tải nhật ký...");
++
++        try {
++            const params = new URLSearchParams(activeFilters);
++            params.set("page", page);
++
++            const response = await request(
++                "/api/admin/audit-logs?" + params.toString());
++            const data = await response.json();
++
++            for (const log of data.content) {
++                const row = document.createElement("tr");
++
++                for (const value of [
++                    log.id,
++                    log.username,
++                    log.action,
++                    log.entityName,
++                    log.createdAt
++                ]) {
++                    const cell = document.createElement("td");
++                    cell.textContent = value ?? "";
++                    row.appendChild(cell);
++                }
++
++                element("rows").appendChild(row);
++            }
++
++            currentPage = data.page;
++
++            element("pageInfo").textContent = data.totalPages === 0
++                ? "0 bản ghi — 0 trang"
++                : `Trang ${data.page + 1}/${data.totalPages}`
++                  + ` — Tổng ${data.totalElements} bản ghi`;
++
++            element("previousButton").disabled =
++                data.first || data.totalPages === 0;
++            element("nextButton").disabled = data.last;
++
++            showMessage(data.content.length
++                ? "HTTP 200 — Tải nhật ký thành công."
++                : "HTTP 200 — Không có nhật ký phù hợp.");
++        } catch (error) {
++            clearResults();
++            showMessage(error.message, true);
++        } finally {
++            busy = false;
++        }
++    }
++
++    element("loginForm").addEventListener("submit", async event => {
++        event.preventDefault();
++        if (busy) return;
++        clearResults();
++
++        const username = element("loginUsername").value.trim();
++        const password = element("loginPassword").value;
++        element("loginPassword").value = "";
++
++        try {
++            // Kết thúc phiên cũ trước khi thử tài khoản khác.
++            await request("/api/auth/logout", {method: "POST"});
++            element("accountStatus").textContent = "Chưa đăng nhập.";
++
++            const response = await request("/api/auth/login", {
++                method: "POST",
++                headers: {"Content-Type": "application/json"},
++                body: JSON.stringify({username, password})
++            });
++
++            const account = await response.json();
++
++            element("accountStatus").textContent =
++                `Đã đăng nhập: ${account.username} — ${account.role}`;
++
++            await loadPage(0);
++        } catch (error) {
++            showMessage(error.message, true);
++        }
++    });
++
++    element("logoutButton").addEventListener("click", async () => {
++        if (busy) return;
++
++        try {
++            await request("/api/auth/logout", {method: "POST"});
++            clearResults();
++            element("loginPassword").value = "";
++            element("accountStatus").textContent = "Đã đăng xuất.";
++            showMessage("Đã kết thúc phiên đăng nhập.");
++        } catch (error) {
++            showMessage(error.message, true);
++        }
++    });
++
++    element("filterForm").addEventListener("submit", event => {
++        event.preventDefault();
++        if (busy) return;
++
++        const fromTime = element("fromTime").value;
++        const toTime = element("toTime").value;
++
++        if (fromTime && toTime && fromTime > toTime) {
++            clearResults();
++            showMessage(
++                "Thời điểm bắt đầu phải nhỏ hơn hoặc bằng thời điểm kết thúc.",
++                true);
++            return;
++        }
++
++        activeFilters = new URLSearchParams();
++
++        for (const key of [
++            "username", "action", "fromTime", "toTime", "size"
++        ]) {
++            const value = element(key).value.trim();
++            if (value) activeFilters.set(key, value);
++        }
++
++        loadPage(0);
++    });
++
++    element("resetButton").addEventListener("click", () => {
++        if (busy) return;
++        element("filterForm").reset();
++        activeFilters = new URLSearchParams({size: "20"});
++        loadPage(0);
++    });
++
++    element("previousButton").addEventListener("click", () => {
++        loadPage(currentPage - 1);
++    });
++
++    element("nextButton").addEventListener("click", () => {
++        loadPage(currentPage + 1);
++    });
+diff --git a/src/test/java/com/example/supplychain/B08ProductionHttpsTest.java b/src/test/java/com/example/supplychain/B08ProductionHttpsTest.java
+new file mode 100644
+index 0000000..5fa1a9b
+--- /dev/null
++++ b/src/test/java/com/example/supplychain/B08ProductionHttpsTest.java
+@@ -0,0 +1,37 @@
++package com.example.supplychain;
++
++import static org.hamcrest.Matchers.startsWith;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.test.web.servlet.MockMvc;
++
++@SpringBootTest(properties = {
++        "app.security.require-https=true",
++        "spring.sql.init.mode=never",
++        "spring.datasource.url=jdbc:h2:mem:b08_prod_https;DB_CLOSE_DELAY=-1",
++        "spring.jpa.hibernate.ddl-auto=create-drop"
++})
++@AutoConfigureMockMvc
++class B08ProductionHttpsTest {
++
++    @Autowired private MockMvc mvc;
++
++    @Test
++    void httpRequestsRedirectToHttpsWhenEnabled() throws Exception {
++        mvc.perform(get("/api/auth/csrf").secure(false))
++                .andExpect(status().is3xxRedirection())
++                .andExpect(header().string("Location", startsWith("https://")));
++    }
++
++    @Test
++    void httpsCsrfEndpointWorksWithoutLogin() throws Exception {
++        mvc.perform(get("/api/auth/csrf").secure(true))
++                .andExpect(status().isOk());
++    }
++}
+diff --git a/src/test/java/com/example/supplychain/B08V4RiskVerificationTest.java b/src/test/java/com/example/supplychain/B08V4RiskVerificationTest.java
+new file mode 100644
+index 0000000..8aa91a0
+--- /dev/null
++++ b/src/test/java/com/example/supplychain/B08V4RiskVerificationTest.java
+@@ -0,0 +1,302 @@
++package com.example.supplychain;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
++import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
++import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
++
++import java.math.BigDecimal;
++import java.nio.charset.StandardCharsets;
++import java.util.UUID;
++import java.util.zip.ZipEntry;
++import java.util.zip.ZipOutputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.InputStream;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.http.MediaType;
++import org.springframework.mock.web.MockMultipartFile;
++import org.springframework.mock.web.MockHttpSession;
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.test.web.servlet.MockMvc;
++
++import com.example.supplychain.entity.Product;
++import com.example.supplychain.entity.Role;
++import com.example.supplychain.entity.UserAccount;
++import com.example.supplychain.repository.ProductRepository;
++import com.example.supplychain.repository.AuditLogRepository;
++import com.example.supplychain.repository.UserAccountRepository;
++import com.example.supplychain.service.AuditLogService;
++
++@SpringBootTest(properties = {
++        "spring.sql.init.mode=never",
++        "spring.datasource.url=jdbc:h2:mem:b08_v4_risk;DB_CLOSE_DELAY=-1",
++        "spring.jpa.hibernate.ddl-auto=create-drop"
++})
++@AutoConfigureMockMvc
++class B08V4RiskVerificationTest {
++
++    @Autowired private MockMvc mvc;
++    @Autowired private ProductRepository productRepository;
++    @Autowired private UserAccountRepository userAccountRepository;
++    @Autowired private PasswordEncoder passwordEncoder;
++    @Autowired private AuditLogService auditLogService;
++    @Autowired private AuditLogRepository auditLogRepository;
++
++    @Test // BM1
++    void bm01InjectionTextDoesNotBypassProductSearchFilter() throws Exception {
++        Product product = new Product();
++        product.setSku("BM08-" + UUID.randomUUID());
++        product.setName("Known safe product " + UUID.randomUUID());
++        product.setUnit("pcs");
++        product.setPrice(BigDecimal.ONE);
++        Product saved = productRepository.saveAndFlush(product);
++        try {
++            mvc.perform(get("/api/products/search")
++                            .param("keyword", "' OR 1=1 --")
++                            .with(user("staff").roles("WAREHOUSE_STAFF")))
++                    .andExpect(status().isOk())
++                    .andExpect(jsonPath("$.totalElements").value(0));
++            mvc.perform(get("/api/products/search")
++                            .param("keyword", saved.getSku())
++                            .with(user("staff").roles("WAREHOUSE_STAFF")))
++                    .andExpect(status().isOk())
++                    .andExpect(jsonPath("$.totalElements").value(1));
++        } finally {
++            productRepository.deleteById(saved.getId());
++        }
++    }
++
++    @Test // BM1
++    void bm01SqlWildcardCharactersAreEscapedInSearch() throws Exception {
++        mvc.perform(get("/api/products/search")
++                        .param("keyword", "%' OR 'a'='a")
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.totalElements").value(0));
++    }
++
++    @Test // BM2, stored XSS is also subject to the browser evidence step
++    void bm02AuditUiUsesTextNodesInsteadOfInjectingHtml() throws Exception {
++        try (InputStream input = getClass().getResourceAsStream("/static/audit-logs.js")) {
++            assertNotNull(input, "Missing audit JS");
++            String js = new String(input.readAllBytes(), StandardCharsets.UTF_8);
++            assertTrue(js.contains("cell.textContent = value ?? \"\""));
++            assertFalse(js.contains("innerHTML"));
++        }
++        try (InputStream input = getClass().getResourceAsStream("/static/audit-logs.html")) {
++            assertNotNull(input, "Missing audit HTML");
++            String html = new String(input.readAllBytes(), StandardCharsets.UTF_8);
++            assertTrue(html.contains("src=\"/audit-logs.js\""));
++            assertTrue(html.contains("href=\"/audit-logs.css\""));
++            assertFalse(html.contains("<script>"));
++            assertFalse(html.contains("<style>"));
++        }
++        String payload = "<img src=x onerror=alert(1)>";
++        auditLogService.record("b08-xss", "B08_XSS_TEST", payload);
++        mvc.perform(get("/api/audit-logs").param("action", "B08_XSS_TEST")
++                        .with(user("admin").roles("ADMIN")))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.content[0].entityName").value(payload));
++    }
++
++    @Test // BM3
++    void bm03CrossSiteStateChangingRequestWithoutCsrfIsForbidden() throws Exception {
++        mvc.perform(post("/api/auth/logout")
++                        .header("Origin", "https://external.invalid")
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isForbidden());
++        mvc.perform(post("/api/auth/logout")
++                        .with(csrf().asHeader())
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isOk());
++    }
++
++    @Test // BM3, static audit page uses CSRF token issued to the same session
++    void bm03CsrfEndpointPublishesHeaderNameAndToken() throws Exception {
++        try (InputStream input = getClass().getResourceAsStream("/static/audit-logs.js")) {
++            assertNotNull(input, "Missing audit JS");
++            String js = new String(input.readAllBytes(), StandardCharsets.UTF_8);
++            assertTrue(js.contains("/api/auth/csrf"));
++            assertTrue(js.contains("[csrf.headerName]: csrf.token"));
++        }
++        mvc.perform(get("/api/auth/csrf"))
++                .andExpect(status().isOk())
++                .andExpect(jsonPath("$.headerName").value("X-CSRF-TOKEN"))
++                .andExpect(jsonPath("$.token").isNotEmpty());
++    }
++
++    @Test // BM3 end-to-end same-session token (not just mocked csrf postprocessor)
++    void bm03BrowserCanUseIssuedCsrfTokenInSameSession() throws Exception {
++        var issued = mvc.perform(get("/api/auth/csrf"))
++                .andExpect(status().isOk())
++                .andReturn();
++        JsonNode token = new ObjectMapper().readTree(issued.getResponse().getContentAsString());
++        MockHttpSession session = (MockHttpSession) issued.getRequest().getSession(false);
++        assertNotNull(session, "CSRF endpoint must establish a session");
++        mvc.perform(post("/api/auth/logout")
++                        .session(session)
++                        .header(token.get("headerName").asText(), token.get("token").asText()))
++                .andExpect(status().isOk());
++    }
++
++    @Test // BM4
++    void bm04StaffCannotReadOtherAccountsByChangingIdentifiers() throws Exception {
++        for (String path : new String[] {"/api/user-accounts/1", "/api/user-accounts/999999"}) {
++            mvc.perform(get(path).with(user("staff").roles("WAREHOUSE_STAFF")))
++                    .andExpect(status().isForbidden());
++        }
++        mvc.perform(get("/api/users/another-person")
++                        .with(user("alice").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isForbidden());
++    }
++
++    @Test // BM5
++    void bm05RoleMatrixRejectsDeniedOperations() throws Exception {
++        for (String path : new String[] {
++                "/api/admin/test", "/api/audit-logs", "/api/admin/audit-logs", "/api/user-accounts"
++        }) {
++            mvc.perform(get(path).with(user("staff").roles("WAREHOUSE_STAFF")))
++                    .andExpect(status().isForbidden());
++        }
++        mvc.perform(get("/api/audit-logs").with(user("admin").roles("ADMIN")))
++                .andExpect(status().isOk());
++    }
++
++    @Test // BM6
++    void bm06RegistrationHashesPasswordAndDoesNotAllowAdminRole() throws Exception {
++        String username = "b08-v4-" + UUID.randomUUID();
++        String password = "Strong123!Secure";
++        try {
++            mvc.perform(post("/api/auth/register").with(csrf().asHeader())
++                            .contentType(MediaType.APPLICATION_JSON)
++                            .content("{\"username\":\"" + username + "\",\"password\":\""
++                                    + password + "\",\"role\":\"ADMIN\"}"))
++                    .andExpect(status().isCreated())
++                    .andExpect(jsonPath("$.role").value("WAREHOUSE_STAFF"))
++                    .andExpect(jsonPath("$.password").value(org.hamcrest.Matchers.nullValue()));
++            UserAccount saved = userAccountRepository.findByUsername(username).orElseThrow();
++            assertEquals(Role.WAREHOUSE_STAFF, saved.getRole());
++            assertFalse(password.equals(saved.getPassword()));
++            assertTrue(passwordEncoder.matches(password, saved.getPassword()));
++        } finally {
++            userAccountRepository.findByUsername(username)
++                    .ifPresent(userAccountRepository::delete);
++        }
++    }
++
++    @Test // BM7
++    void bm07UnauthenticatedAccessIsRejectedAndCookieFlagsAreConfiguredInProd() throws Exception {
++        mvc.perform(get("/api/test/protected"))
++                .andExpect(status().isUnauthorized());
++        try (InputStream input = getClass().getResourceAsStream("/application-prod.properties")) {
++            assertNotNull(input);
++            String properties = new String(input.readAllBytes(), StandardCharsets.UTF_8);
++            assertTrue(properties.contains("server.servlet.session.cookie.http-only=true"));
++            assertTrue(properties.contains("server.servlet.session.cookie.secure=true"));
++        }
++    }
++
++    @Test // BM8
++    void bm08RejectsFakeImagePayload() throws Exception {
++        MockMultipartFile fake = new MockMultipartFile("file", "test.png", "image/png",
++                "not a PNG file".getBytes(StandardCharsets.UTF_8));
++        mvc.perform(multipart("/api/files/upload").file(fake)
++                        .with(csrf().asHeader())
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isBadRequest())
++                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
++    }
++
++    @Test // BM8
++    void bm08RejectsSpreadsheetContainingVbaMacro() throws Exception {
++        ByteArrayOutputStream output = new ByteArrayOutputStream();
++        try (ZipOutputStream zip = new ZipOutputStream(output)) {
++            for (String entry : new String[] {
++                    "[Content_Types].xml", "xl/workbook.xml", "xl/vbaProject.bin"
++            }) {
++                zip.putNextEntry(new ZipEntry(entry));
++                zip.write("safe test fixture".getBytes(StandardCharsets.UTF_8));
++                zip.closeEntry();
++            }
++        }
++        MockMultipartFile macro = new MockMultipartFile("file", "macro.xlsx",
++                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray());
++        mvc.perform(multipart("/api/files/upload").file(macro)
++                        .with(csrf().asHeader())
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isBadRequest())
++                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
++    }
++
++    @Test // BM9
++    void bm09MalformedInputsNeverExposeInternalExceptionDetails() throws Exception {
++        mvc.perform(get("/api/products/not-a-long")
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isBadRequest())
++                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
++                .andExpect(content().string(org.hamcrest.Matchers.not(
++                        org.hamcrest.Matchers.containsString("org.springframework"))))
++                .andExpect(content().string(org.hamcrest.Matchers.not(
++                        org.hamcrest.Matchers.containsString("SQLException"))));
++        mvc.perform(post("/api/auth/register").with(csrf().asHeader())
++                        .contentType(MediaType.APPLICATION_JSON)
++                        .content("{malformed-json}"))
++                .andExpect(status().isBadRequest())
++                .andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"));
++    }
++
++    @Test // BM10
++    void bm10RepeatedWrongLoginsReceive429() throws Exception {
++        String username = "b08-missing-" + UUID.randomUUID();
++        String body = "{\"username\":\"" + username + "\",\"password\":\"invalid\"}";
++        for (int i = 0; i < 5; i++) {
++            mvc.perform(post("/api/auth/login").with(csrf().asHeader())
++                            .contentType(MediaType.APPLICATION_JSON).content(body))
++                    .andExpect(status().isUnauthorized());
++        }
++        mvc.perform(post("/api/auth/login").with(csrf().asHeader())
++                        .contentType(MediaType.APPLICATION_JSON).content(body))
++                .andExpect(status().isTooManyRequests());
++        assertTrue(auditLogRepository.findAll().stream()
++                .anyMatch(log -> username.equals(log.getUsername())
++                        && "LOGIN_BLOCKED".equals(log.getAction())));
++    }
++
++    @Test // BM12, transport headers need a real public HTTPS check too
++    void bm12HttpsResponseIncludesFiveSecurityHeaders() throws Exception {
++        mvc.perform(get("/api/test/protected").secure(true)
++                        .with(user("staff").roles("WAREHOUSE_STAFF")))
++                .andExpect(status().isOk())
++                .andExpect(header().exists("Content-Security-Policy"))
++                .andExpect(header().exists("Referrer-Policy"))
++                .andExpect(header().exists("X-Content-Type-Options"))
++                .andExpect(header().string("X-Frame-Options", "SAMEORIGIN"))
++                .andExpect(header().exists("Strict-Transport-Security"));
++    }
++
++    @Test // BM12
++    void bm12ProdDisablesH2ConsoleAndDetailedErrors() throws Exception {
++        try (InputStream input = getClass().getResourceAsStream("/application-prod.properties")) {
++            assertNotNull(input);
++            String properties = new String(input.readAllBytes(), StandardCharsets.UTF_8);
++            assertTrue(properties.contains("spring.h2.console.enabled=false"));
++            assertTrue(properties.contains("server.error.include-stacktrace=never"));
++            assertTrue(properties.contains("app.security.require-https=true"));
++        }
++    }
++}
+diff --git a/verification/B08_BM1_BM12_MATRIX.csv b/verification/B08_BM1_BM12_MATRIX.csv
+new file mode 100644
+index 0000000..8d34c9b
+--- /dev/null
++++ b/verification/B08_BM1_BM12_MATRIX.csv
+@@ -0,0 +1,13 @@
++﻿Ma,Rui ro,Vi tri code,Automated checks,Can kiem tra tren server/browser,Trang thai
++BM1,SQL injection,ProductSearchService.java; ProductSearchController.java,bm01InjectionTextDoesNotBypassProductSearchFilter; bm01SqlWildcardCharactersAreEscapedInSearch,All search/path params; negative queries; no SQL errors,CHUA KIEM CHUNG THUC TE
++BM2,Stored XSS,audit-logs.js; AuditLogController.java,bm02AuditUiUsesTextNodesInsteadOfInjectingHtml,Browser stored payload renders text and never executes,CHUA KIEM CHUNG THUC TE
++BM3,CSRF,SecurityConfig.java; CsrfTokenController.java; audit-logs.js,bm03CrossSiteStateChangingRequestWithoutCsrfIsForbidden; bm03CsrfEndpointPublishesHeaderNameAndToken,Browser login/logout; cross-origin form denied,CHUA KIEM CHUNG THUC TE
++BM4,IDOR,SecurityConfig.java; UserAccountController.java,bm04StaffCannotReadOtherAccountsByChangingIdentifiers,All object IDs and object ownership checks,CHUA KIEM CHUNG THUC TE
++BM5,Broken access control,SecurityConfig.java; UserAccountController.java; AuditLogController.java,bm05RoleMatrixRejectsDeniedOperations,Complete allow/deny permission matrix,CHUA KIEM CHUNG THUC TE
++BM6,Unsafe password storage,AuthController.java; UserAccountController.java,bm06RegistrationHashesPasswordAndDoesNotAllowAdminRole,Existing data and password audit; history,CHUA KIEM CHUNG THUC TE
++BM7,Session management,AuthController.java; application-prod.properties,bm07UnauthenticatedAccessIsRejectedAndCookieFlagsAreConfiguredInProd,Cookie Secure HttpOnly SameSite + session expiration in live browser,CHUA KIEM CHUNG THUC TE
++BM8,File upload,FileUploadService.java; FileUploadController.java,bm08RejectsFakeImagePayload; bm08RejectsSpreadsheetContainingVbaMacro,Real upload storage isolation and direct-file access,CHUA KIEM CHUNG THUC TE
++BM9,Error information leakage,GlobalExceptionHandler.java; application-prod.properties,bm09MalformedInputsNeverExposeInternalExceptionDetails,Production 400/404/500 do not show stack traces,CHUA KIEM CHUNG THUC TE
++BM10,Brute force / rate limit,LoginAttemptService.java; AuthController.java,bm10RepeatedWrongLoginsReceive429,Review logs and restarts / distributed environment,CHUA KIEM CHUNG THUC TE
++BM11,Git history secrets,scripts/check-b08-git-history.ps1,Run script against --all refs,Manual and hosted secret scan; rotate any compromised key,CHUA KIEM CHUNG THUC TE
++BM12,HTTPS + security headers,SecurityConfig.java; application-prod.properties,bm12HttpsResponseIncludesFiveSecurityHeaders; httpRequestsRedirectToHttpsWhenEnabled,scripts/test-b08-public-headers.ps1; real TLS and redirect,CHUA KIEM CHUNG THUC TE

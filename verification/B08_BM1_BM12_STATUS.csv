@@ -1,0 +1,13 @@
+Risk,Requirement,ExistingEvidence,StillToVerify,Status
+BM1,SQL injection,SecurityHardeningTest tc25 invalid product ID,All database queries and search endpoints,PARTIAL
+BM2,Stored XSS,audit-logs.html uses textContent,Stored user input rendered in actual browser,PARTIAL
+BM3,CSRF,SecurityHardeningTest tc21 plus B08SecurityRegressionTest,State-changing browser requests and cross-site form,PARTIAL
+BM4,IDOR,SecurityHardeningTest tc24,Every object ID and ownership rule,PARTIAL
+BM5,Function-level authorization,SecurityConfig and SecurityHardeningTest tc24,Complete role/API matrix,PARTIAL
+BM6,Password hashes,SecurityHardeningTest tc22 plus UserAccountPasswordIntegrityTest,Historical persisted accounts and git history,PARTIAL
+BM7,Session management,SecurityHardeningTest tc22,Production cookies and session expiration,PARTIAL
+BM8,File upload,FileUploadHardeningTest,Real deployment storage and direct access,PARTIAL
+BM9,Error information leakage,SecurityHardeningTest tc25,All endpoints and production error responses,PARTIAL
+BM10,Login throttling,SecurityHardeningTest tc23,Actual production behavior across restarts,PARTIAL
+BM11,Repository secrets,scripts/check-b08-repository.ps1,Full git history and remote repo inspection,NOT VERIFIED
+BM12,HTTPS and security headers,SecurityHardeningTest tc25 plus B08SecurityRegressionTest,Public HTTPS domain and response headers,PARTIAL

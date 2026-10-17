@@ -10,79 +10,168 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // 400: @Valid trên DTO không hợp lệ
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(
-            MethodArgumentNotValidException ex, HttpServletRequest req) {
+            MethodArgumentNotValidException ex,
+            HttpServletRequest req) {
 
-        String message = ex.getBindingResult().getFieldErrors().stream()
+        String message = ex.getBindingResult()
+                .getFieldErrors()
+                .stream()
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .collect(Collectors.joining("; "));
 
-        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", message, req);
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                message,
+                req
+        );
     }
 
-    // 400: body sai JSON hoặc sai kiểu (ví dụ quantity = "abc")
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleBadBody(
-            HttpMessageNotReadableException ex, HttpServletRequest req) {
+            HttpMessageNotReadableException ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.BAD_REQUEST, "INVALID_REQUEST_BODY",
-                "Body JSON sai định dạng hoặc sai kiểu dữ liệu", req);
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_REQUEST_BODY",
+                "Body JSON sai định dạng hoặc sai kiểu dữ liệu",
+                req
+        );
     }
 
-    // 400: kiểm tra phòng thủ trong Service
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidParameter(
+            MethodArgumentTypeMismatchException ex,
+            HttpServletRequest req) {
+
+        String parameterName = ex.getName();
+
+        String message = "Tham số '" + parameterName
+                + "' không đúng kiểu dữ liệu";
+
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_PARAMETER",
+                message,
+                req
+        );
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(
-            IllegalArgumentException ex, HttpServletRequest req) {
+            IllegalArgumentException ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", ex.getMessage(), req);
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                ex.getMessage(),
+                req
+        );
     }
 
-    // 404
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(
-            ResourceNotFoundException ex, HttpServletRequest req) {
+            ResourceNotFoundException ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", ex.getMessage(), req);
+        return build(
+                HttpStatus.NOT_FOUND,
+                "RESOURCE_NOT_FOUND",
+                ex.getMessage(),
+                req
+        );
     }
 
-    // 409
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(
+            NoResourceFoundException ex,
+            HttpServletRequest req) {
+
+        return build(
+                HttpStatus.NOT_FOUND,
+                "RESOURCE_NOT_FOUND",
+                "Không tìm thấy tài nguyên được yêu cầu",
+                req
+        );
+    }
+
     @ExceptionHandler(BusinessConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(
-            BusinessConflictException ex, HttpServletRequest req) {
+            BusinessConflictException ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.CONFLICT, "BUSINESS_CONFLICT", ex.getMessage(), req);
+        return build(
+                HttpStatus.CONFLICT,
+                "BUSINESS_CONFLICT",
+                ex.getMessage(),
+                req
+        );
     }
 
-    // 403: tránh handler 500 bên dưới nuốt lỗi phân quyền
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleForbidden(
-            AccessDeniedException ex, HttpServletRequest req) {
+            AccessDeniedException ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.FORBIDDEN, "FORBIDDEN",
-                "Không đủ quyền thực hiện thao tác này", req);
+        return build(
+                HttpStatus.FORBIDDEN,
+                "FORBIDDEN",
+                "Không đủ quyền thực hiện thao tác này",
+                req
+        );
     }
 
-    // 500
+    @ExceptionHandler(TransferBusinessException.class)
+    public ResponseEntity<ErrorResponse> handleTransferBusiness(
+            TransferBusinessException ex,
+            HttpServletRequest req) {
+
+        return build(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "TRANSFER_BUSINESS_ERROR",
+                ex.getMessage(),
+                req
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleOther(
-            Exception ex, HttpServletRequest req) {
+            Exception ex,
+            HttpServletRequest req) {
 
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
-                "Lỗi hệ thống", req);
+        return build(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Lỗi hệ thống",
+                req
+        );
     }
 
     private ResponseEntity<ErrorResponse> build(
-            HttpStatus status, String code, String message, HttpServletRequest req) {
+            HttpStatus status,
+            String code,
+            String message,
+            HttpServletRequest req) {
 
         return ResponseEntity.status(status).body(
-                new ErrorResponse(code, message, LocalDateTime.now(), req.getRequestURI()));
+                new ErrorResponse(
+                        code,
+                        message,
+                        LocalDateTime.now(),
+                        req.getRequestURI()
+                )
+        );
     }
 }

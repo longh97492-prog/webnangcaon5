@@ -4,15 +4,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
 public class ImportRequest {
 
     @NotBlank(message = "Ma phieu nhap khong duoc de trong")
@@ -31,4 +27,23 @@ public class ImportRequest {
     @NotNull(message = "quantity la bat buoc")
     @Positive(message = "So luong nhap phai lon hon 0")
     private Integer quantity;
+
+    public ImportRequest() {
+    }
+
+    public ImportRequest(
+            String receiptCode,
+            Long productId,
+            Long warehouseId,
+            Long supplierId,
+            Long userId,
+            Integer quantity) {
+
+        this.receiptCode = receiptCode;
+        this.productId = productId;
+        this.warehouseId = warehouseId;
+        this.supplierId = supplierId;
+        this.userId = userId;
+        this.quantity = quantity;
+    }
 }
