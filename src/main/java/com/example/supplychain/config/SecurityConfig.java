@@ -83,6 +83,7 @@ public class SecurityConfig {
                                 "/api/auth/logout",
                                 "/h2-console/**"
                         ).permitAll()
+<<<<<<< HEAD
                         .requestMatchers("/api/admin/**")
                                 .hasRole("ADMIN")
                         .requestMatchers("/api/user-accounts", "/api/user-accounts/**")
@@ -91,9 +92,28 @@ public class SecurityConfig {
                                 .hasRole("ADMIN")
                         .requestMatchers("/api/users/**")
                                 .hasRole("ADMIN")
+=======
+
+                        .requestMatchers("/api/admin/**")
+                                .hasRole("ADMIN")
+
+                        // Quan tri tai khoan chi danh cho ADMIN.
+                        .requestMatchers(
+                                "/api/user-accounts",
+                                "/api/user-accounts/**"
+                        ).hasRole("ADMIN")
+
+>>>>>>> group/develop
                         .requestMatchers("/api/files/**")
-                                .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "WAREHOUSE_STAFF")
-                        .requestMatchers("/api/**").authenticated()
+                                .hasAnyRole(
+                                        "ADMIN",
+                                        "WAREHOUSE_MANAGER",
+                                        "WAREHOUSE_STAFF"
+                                )
+
+                        .requestMatchers("/api/**")
+                                .authenticated()
+
                         .anyRequest().permitAll()
                 )
                 .exceptionHandling(errors -> errors

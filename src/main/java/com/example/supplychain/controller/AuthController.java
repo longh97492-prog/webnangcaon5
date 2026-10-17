@@ -81,10 +81,17 @@ public class AuthController {
                     .body("Username đã tồn tại");
         }
 
+<<<<<<< HEAD
         UserAccount newAccount = new UserAccount();
         newAccount.setUsername(username);
         newAccount.setPassword(
                 passwordEncoder.encode(request.getPassword())
+=======
+        user.setRole(Role.WAREHOUSE_STAFF);
+
+        user.setPassword(
+                passwordEncoder.encode(user.getPassword())
+>>>>>>> group/develop
         );
 
         // Đăng ký công khai không được tự cấp quyền ADMIN.
